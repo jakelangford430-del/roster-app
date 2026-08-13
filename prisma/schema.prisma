@@ -1,0 +1,154 @@
+// PeopleSync data model
+//
+// Design note: every core record carries a `source` field ("manual" | "import" | a
+// future integration key such as "zendesk" / "salesforce" / "teams"). Nothing in the
+// schema assumes data originates locally — later phases can write to these same
+// tables from a sync job instead of a human editing a form.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite has no native enum type, so Prisma can't map `enum` here. The allowed
+// values for each of these String columns are defined once, in TypeScript, at
+// src/lib/types.ts (WorkCategory, Priority, AnnouncementPriority, LeaveKind) and
+// enforced at the application boundary.
+
+model Team {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  leaderId  String?
+  leader    Employee?  @relation("TeamLeader", fields: [leaderId], references: [id])
+  employees Employee[] @relation("TeamMembers")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Employee {
+  id           String   @id @default(cuid())
+  employeeCode String?  @unique
+  name         String
+  email        String?
+  isLeader     Boolean  @default(false)
+  active       Boolean  @default(true)
+
+  teamId String?
+  team   Team?   @relation("TeamMembers", fields: [teamId], references: [id])
+
+  leaderId String?
+  leader   Employee?  @relation("EmployeeLeader", fields: [leaderId], references: [id])
+  reports  Employee[] @relation("EmployeeLeader")
+
+  teamsLed    Team[]          @relation("TeamLeader")
+  skills      EmployeeSkill[]
+  shifts      Shift[]
+  allocations Allocation[]
+
+  source    String   @default("manual")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Skill {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  active    Boolean         @default(true)
+  employees EmployeeSkill[]
+  workTypes WorkType[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model EmployeeSkill {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  skillId    String
+  skill      Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([employeeId, skillId])
+}
+
+model WorkType {
+  id             String   @id @default(cuid())
+  name           String
+  category       String
+  description    String?
+  active         Boolean  @default(true)
+  priority       String   @default("NORMAL")
+  targetStaffing Int?
+  leaveKind      String?
+
+  requiredSkillId String?
+  requiredSkill   Skill?  @relation(fields: [requiredSkillId], references: [id])
+
+  allocations Allocation[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([name])
+}
+
+model Shift {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date       DateTime
+  startTime  String
+  endTime    String
+  notes      String?
+  source     String   @default("manual")
+
+  allocations Allocation[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([employeeId, date])
+}
+
+model Allocation {
+  id         String   @id @default(cuid())
+  shiftId    String
+  shift      Shift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workTypeId String
+  workType   WorkType @relation(fields: [workTypeId], references: [id])
+  startTime  String
+  endTime    String
+  channel    String?
+  notes      String?
+  source     String   @default("manual")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Briefing {
+  id               String   @id @default(cuid())
+  date             DateTime @unique
+  heading          String
+  message          String
+  priorities       String?
+  risks            String?
+  operationalNotes String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Announcement {
+  id         String    @id @default(cuid())
+  title      String
+  message    String
+  date       DateTime
+  priority   String    @default("NORMAL")
+  expiryDate DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
